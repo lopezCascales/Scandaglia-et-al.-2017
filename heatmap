@@ -1,0 +1,190 @@
+iKO <- read.csv("kdm5c_KOvsWT_conditionalflox.csv")
+cKO <- read.csv("lista_final_KOvsWTinHC.csv")
+names(iKO)[4] <- 'log2FoldChangeiKO'
+names(iKO)[5] <- 'lfcMLEiKO'
+names(iKO)[9] <- 'padjiKO'
+names(cKO)[4] <- 'log2FoldChangecKO'
+names(cKO)[5] <- 'lfcMLEcKO'
+names(cKO)[9] <- 'padjcKO'
+# ---- padj 0.1
+resSig <- subset(cKO, padjcKO < 0.1)
+# resSig <- subset(resdata1, padjWT < 0.1)
+write.csv(as.data.frame(resSig),file="lista_final_KOvsWT_iKOvscKO_padj01.csv")
+#resSig_o <- resSig[order(resSig$log2FoldChangeWT),]  
+#resSig_filter <- resSig_o[c(50:90),]
+#head(resSig_filter)
+#colnames(resSig_filter)
+#resSig_filter <- subset(resSig_o, log2FoldChangeWT > 0.5)
+colnames(resSig)
+#head(resSig_filter)
+row.names(resSig) <- resSig$genes
+row.names(KO) <- KO$genes
+row.names(iKO) <- iKO$genes
+rld_matrix2 <- as.matrix(resSig[,c(26:31)])
+rld_matrix1 <- as.matrix(iKO[,c(26:31)])
+#rld_matrix <- as.matrix(resSig[,c(6:11,15:20)])
+
+
+head(rld_matrix1)
+dim(rld_matrix1) ## [1] 625 12
+colnames(rld_matrix1)
+
+head(rld_matrix2)
+dim(rld_matrix2) ## [1] 625 12
+colnames(rld_matrix2)
+
+# rld_matrix <- merge(rld_matrix2, rld_matrix1,by='row.names',sort=F,all.x=T )
+# rownames(rld_matrix) <- rld_matrix[,1]
+# rld_matrix[,1] <- NULL
+# head(rld_matrix)
+#
+# rld_mean <- rowMeans(rld_matrix[,c(1:3)])
+rld_mean1 <- rowMeans(rld_matrix1[,c(4:6)])
+rld_mean2 <- rowMeans(rld_matrix2[,c(4:6)])
+ [1] "rld_KOHC1" "rld_KOHC2" "rld_KOHC3" "rld_WTHC1" "rld_WTHC2" "rld_WTHC3"
+ [7] "rld_KONE1" "rld_KONE2" "rld_KONE3" "rld_WTNE1" "rld_WTNE2" "rld_WTNE3"
+
+head(rld_mean1)
+head(rld_mean2)
+# head(rld_mean)
+# LFC_rld <- rld_matrix - rld_mean
+
+colnames(LFC_rld)[1] <- "LFCrld_WTHC1"
+colnames(LFC_rld)[2] <- "LFCrld_WTHC2"
+colnames(LFC_rld)[3] <- "LFCrld_WTHC3"
+colnames(LFC_rld)[4] <- "LFCrld_WTNE1"
+colnames(LFC_rld)[5] <- "LFCrld_WTNE2"
+colnames(LFC_rld)[6] <- "LFCrld_WTNE3"
+colnames(LFC_rld)[7] <- "LFCrld_KOHC1"
+colnames(LFC_rld)[8] <- "LFCrld_KOHC2"
+colnames(LFC_rld)[9] <- "LFCrld_KOHC3"
+colnames(LFC_rld)[10] <- "LFCrld_KONE1"
+colnames(LFC_rld)[11] <- "LFCrld_KONE2"
+colnames(LFC_rld)[12] <- "LFCrld_KONE3"
+
+LFC_rld1 <- rld_matrix1 - rld_mean1
+LFC_rld2 <- rld_matrix2 - rld_mean2
+colnames(LFC_rld1)[1] <- "LFCrld_iKO1"
+colnames(LFC_rld1)[2] <- "LFCrld_iKO2"
+colnames(LFC_rld1)[3] <- "LFCrld_iKO3"
+colnames(LFC_rld1)[4] <- "LFCrld_iWT1"
+colnames(LFC_rld1)[5] <- "LFCrld_iWT2"
+colnames(LFC_rld1)[6] <- "LFCrld_iWT3"
+colnames(LFC_rld2)[1] <- "LFCrld_KOHC1"
+colnames(LFC_rld2)[2] <- "LFCrld_KOHC2"
+colnames(LFC_rld2)[3] <- "LFCrld_KOHC3"
+colnames(LFC_rld2)[4] <- "LFCrld_WTHC1"
+colnames(LFC_rld2)[5] <- "LFCrld_WTHC2"
+colnames(LFC_rld2)[6] <- "LFCrld_WTHC3"
+
+
+LFCrldmatrix <- as.matrix(LFC_rld)
+colnames(LFCrldmatrix)
+min(LFCrldmatrix) # [1]  -0.8343752
+max(LFCrldmatrix) # [1]  1.358669
+library(RColorBrewer)
+library(gplots)
+cols = colorpanel(99,'blue','white','red')
+breaks = seq(-1,1,length=100)
+
+hm01 <- heatmap.2(LFCrldmatrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=resSig$symbol, cexRow=0.6, cexCol=1, main="NevsHC_padj0.1",margins=c(4,8))
+dev.copy2eps(file ='Novelty.eps')
+dev.off()
+head(hm01)
+
+hm01 
+hc <- as.hclust(hm01$rowDendrogram)
+hc$labels[hc$order]
+info <- str(as.dendrogram(hc))
+
+plot(hc)
+plot(hc, labels=F)
+plot(hc, labels=F, hang=-1)
+dev.copy2eps(file ='dendro_ikovscko.eps')
+dev.off()
+################################################################################
+## Add a decission color qualitative variable next to the heatmap
+
+directory <-"/home/mycupof/Escritorio/atac/colors"
+setwd(directory)
+
+############################################################################################################################################
+Prueba<-read.table("atacCLOSE10891_dend.txt",header=FALSE,fill=TRUE,sep="\t")
+n<-nrow(Prueba)
+Results<-vector()
+
+for (i in 1:n)
+{
+	aux<-as.character(Prueba[i,1])
+	m<-nchar(aux)
+	Indicator_v<-0
+	Indicator_equal<-0
+	Position_v<-0
+	Position_equal<-0
+	for (j in 1:m)
+	{
+		if (substr(aux,j,j)=="v" & Indicator_v==0)
+		{
+			Position_v<-j
+			Indicator_v<-1
+		}
+		if (substr(aux,j,j)=="=" & Indicator_equal==0)
+		{
+			Position_equal<-j
+			Indicator_equal<-1
+		}
+	}
+	if (Position_v>0 & Position_equal>0)
+	{
+		Results<-rbind(Results,as.numeric(substr(aux,Position_v+6,Position_equal-2)))	
+	}
+}
+
+library(gdata)
+library(xlsx)
+
+Prueba2<-read.csv("atac10891color_reduced.csv")
+Results2<-Prueba2[,c(1,7)]
+head(Results2) 
+Results3 <- as.data.frame(Results)
+names(Results3)[1] <- "peakID"
+Results4 <- merge(Results3,Results2, by='peakID',sort=F, all.x=T)
+
+for (i in 1:nrow(Results4))
+{
+                if(Results4[i,2]=="amarillo") 
+		Results4$kmeans<-2
+                if(Results4[i,2]=="Verde") 
+		Results4$kmeans<-1
+}
+head(Results4)
+write.csv(Results4,"atac10891_finalcolors.csv",row.names=FALSE)
+df <- Results4
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("ComplexHeatmap")
+library(ComplexHeatmap)
+library(circlize)
+
+#df <- read.csv("atac10891_finalcolors.csv")
+#ha = HeatmapAnnotation(df = df, col = list(Color = c("Verde" = "green", "amarillo" = "yellow")), which = "row", width = unit(0.5, "cm"))
+#draw(ha, 1:20) ### la columna 2 es la buena
+#draw(ha, 1:10891) 
+
+
+#ha = HeatmapAnnotation(df = df, col = list(Color = c("Verde" = "green", "amarillo" = "yellow")), which = "row", width = unit(0.5, "cm"))
+#draw(ha, 1:20) ### la columna 2 es la buena
+#draw(ha, 1:10891) 
+
+
+df2<-as.data.frame(Results4$Color)
+names(df2)<-"type"
+
+Para que funcione habria   que hacer un vector con el orden de los colores, (df2) seria por ejemplo 6 verdes y 6 amarillos, ... pero habria que poner en orden todo el vector en este caso la segunda columna de df (Results4)
+df2 = data.frame(type = c(rep("Verde", 6), rep("amarillo", 6)))
+ha1 = HeatmapAnnotation(df = df2, col = list(type = c("Verde" = "green", "amarillo" = "yellow")), which = "row", width = unit(1, "cm"))
+draw(ha1, 1:12)
+#################################################################################
+pdf("atacCLOSEdend10891color.pdf")
+ha1 = HeatmapAnnotation(df = df2, col = list(type = c("Verde" = "green", "amarillo" = "yellow")), which = "row", width = unit(0.1, "cm"))
+draw(ha1, 1:10891)
+dev.off()
