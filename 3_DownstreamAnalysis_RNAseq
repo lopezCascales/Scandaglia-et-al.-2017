@@ -1,0 +1,1406 @@
+
+################################################################################
+We start R programme from a “count table”, which summarizes the number of sequence reads mapping to each of the genes
+################################################################################
+
+directory <-"/home/abarco/Desktop/Marilyn/conventional/counts/KOvsWT"
+setwd(directory)
+library("GenomicAlignments")
+library("BiocParallel")
+library("DESeq2")
+library("GenomicFeatures")
+
+# Can merge individual sample files (i.e. ctrl1.counts, ctrl2.counts, etc.)
+samplefiles <-grep("*.txt", list.files(directory), value=TRUE)
+samplefiles
+ 
+# Set sampleConditions and sampleTable for experimental conditions = sampleCondition ← c(“Control, Experimental”)
+# sampleCondition <- (c("KO","KO","KO","WT","WT","WT"))
+sampleGenotype <- as.factor(c(rep("KO",6),rep("WT",6)))
+sampleActivity <- as.factor(c(rep("HC",3),rep("NE",3),rep("HC",3),rep("NE",3)))
+#genotype = sampleGenotype
+#activity = sampleActivity
+sampletable <- data.frame (samplename =samplefiles, filename=samplefiles,genotype = sampleGenotype, activity = sampleActivity) 
+
+# View sampleTable
+sampletable
+#     samplename      filename condition
+#1 KO1counts.txt KO1counts.txt        KO
+#2 KO2counts.txt KO2counts.txt        KO
+#3 KO3counts.txt KO3counts.txt        KO
+#4 wt1counts.txt wt1counts.txt        WT
+#5 wt2counts.txt wt2counts.txt        WT
+#6 wt3counts.txt wt3counts.txt        WT
+
+ddsHTSeq<-DESeqDataSetFromHTSeqCount(sampleTable=sampletable, directory= directory, design=~genotype + activity)
+
+## view ddsHTseq - should give summary of class, data, etc.
+
+ddsHTSeq
+
+#class: DESeqDataSet 
+#dim: 47069 6 
+#metadata(0):
+#assays(1): counts
+#rownames(47069): ENSMUSG00000000001 ENSMUSG00000000003 ...
+#  ENSMUSG00000108814 ENSMUSG00000108815
+#rowRanges metadata column names(0):
+#colnames(6): KO1counts.txt KO2counts.txt ... wt2counts.txt
+#  wt3counts.txt
+#colData names(1): condition
+
+
+# Reference level (We want to compare KO vs WT)
+# By default, R will choose a reference level for factors based on alphabetical order. You can explicity set the factors 
+# level. (KO = treated/experimental; WT = untreated/control)
+# 	dds$condition<-factor(dds$condition,levels=c("untreated","treated"))
+# or 
+# 	dds$condition<-relevel(dds$condition,ref="untreated")
+
+colData(ddsHTSeq)$activity <- factor(colData(ddsHTSeq)$activity, levels =c("HC","NE"))
+colData(ddsHTSeq)$activity
+colData(ddsHTSeq)$genotype <- factor(colData(ddsHTSeq)$genotype, levels =c("WT","KO"))
+colData(ddsHTSeq)$genotype
+#[1] KO KO KO WT WT WT
+#Levels: WT KO
+
+
+########################################################################################################################
+
+
+# The standard differential expression analysis steps are wrapped into a single function, DESeq.
+# Condition treated vs untreated tells you that the estimate are of the logarithmic fold change log2(treated/untreated); in 
+# our case log2(KO/WT).
+
+dds<-DESeq(ddsHTSeq)
+# estimating size factors
+# estimating dispersions
+# gene-wise dispersion estimates
+# mean-dispersion relationship
+# final dispersion estimates
+# fitting model and testing
+
+### dds<-DESeq(ddsHTSeq, betaPrior=F) #### "But then I might recommend using betaPrior=FALSE here, 
+# justified by the reasoning that there are very large expected fold changes for individual genes, but # not so many large fold changes that the width of the prior adjusts to allow such large fold changes. # The shrinking of fold changes requires that the software can estimate the range of reasonable values # for LFC by looking at the distribution of LFCs (particularly the upper quantile of the absolute 
+# LFC). But there might be precise fold changes which are above this upper quantile, and so the prior # is too narrow for the targeted genes. The prior might then be a bad assumption for this dataset, so # I think it's reasonable to turn it off here. The inference works just as well without the prior 
+# included."  
+
+nrow(dds)
+# [1] 47069
+
+# Here we remove rows of the DESeqDataSet that have no counts, or only a single count across all samples:
+dds <- dds[ rowSums(counts(dds)) > 1, ]
+nrow(dds)
+# [1] 24633
+
+# res<-results(dds)
+resgenotype <-results(dds, addMLE=T, contrast=c("genotype","KO","WT")) ### para mirar el efecto del shinkrage
+
+resactivity <-results(dds, addMLE=T, contrast=c("activity","NE","HC")) ### para mirar el efecto del shinkrage
+
+# We can order our results table by the smallest adjusted pvalue:
+resgenotype<-resgenotype[order(resgenotype$padj),] 
+	# order results by padj value (most significant to least)
+	# res[order(res$padj), ][1:4,] 
+	# Returns for each gene: mean expression levels; fold change; log2 fold change; p-value for statistical 
+	# significance of change; and the p-values adjusted for multiple testing with the Benjamini-Hochberg 	
+ 	# procedure which controls the false discovery rate (FDR).
+
+# As res is a DataFrame object, it carries metadata with information on the meaning of the columns:
+ mcols(resgenotype,use.names=TRUE)
+# DataFrame with 6 rows and 2 columns
+# 	                       type                                description
+# 	                <character>                                <character>
+# baseMean    	   intermediate  mean of normalized counts for all samples
+# log2FoldChange 	results 		log2 fold change (MAP): condition KO vs WT
+# lfcSE               	results         	standard error: condition KO vs WT
+# stat                	results         	Wald statistic: condition KO vs WT
+# pvalue           	results      	Wald test p-value: condition KO vs WT
+# padj                	results                      BH adjusted p-values
+
+
+resactivity<-resactivity[order(resactivity$padj),] 
+	# order results by padj value (most significant to least)
+	# res[order(res$padj), ][1:4,] 
+	# Returns for each gene: mean expression levels; fold change; log2 fold change; p-value for statistical 
+	# significance of change; and the p-values adjusted for multiple testing with the Benjamini-Hochberg 	
+ 	# procedure which controls the false discovery rate (FDR).
+
+# As res is a DataFrame object, it carries metadata with information on the meaning of the columns:
+ mcols(resactivity,use.names=TRUE)
+
+
+
+# We can also summarize the results with the following line of code, which reports some additional  information, that 
+# will be covered in later sections.
+summary(resgenotype)
+
+	#out of 24633 with nonzero total read count
+	#adjusted p-value < 0.1
+	#LFC > 0 (up)     : 482, 2% 
+	#LFC < 0 (down)   : 143, 0.58% 
+	#outliers [1]     : 12, 0.049% 
+	#low counts [2]   : 7640, 31% 
+	#(mean count < 6)
+	#[1] see 'cooksCutoff' argument of ?results
+	#[2] see 'independentFiltering' argument of ?results
+
+summary(resactivity)
+
+	#out of 24633 with nonzero total read count
+	#adjusted p-value < 0.1
+	#LFC > 0 (up)     : 482, 2% 
+	#LFC < 0 (down)   : 143, 0.58% 
+	#outliers [1]     : 12, 0.049% 
+	#low counts [2]   : 7640, 31% 
+	#(mean count < 6)
+	#[1] see 'cooksCutoff' argument of ?results
+	#[2] see 'independentFiltering' argument of ?results
+
+
+########################################################################################################################
+
+
+# Having created a count table and fed it into a DESeq2 object, the next step in the workflow is the quality control of 
+# the data. 
+# Let’s check how many genes we capture by counting the number of genes that have non–zero counts in all samples.
+
+GeneCounts <- counts(dds)
+dim(GeneCounts) #todos los genes!
+idx.nz <- apply(GeneCounts, 1, function(x) { all(x > 0)})
+sum(idx.nz)
+head(idx.nz) #todos los genes con reads en todas las muestras!
+
+GeneCounts.norm <- round(counts(dds,normalized=TRUE),2) 
+head(GeneCounts.norm)
+
+#-----------------------------------------------------------------------------------------------------------------
+# In a typical RNA-Seq experiment, there will be at least several thousand genes that are expressed in all samples. If the 
+# number of non–zero genes is very low, there is usually something wrong with at least some of the samples (e.g. the
+# sample preparation was not done properly, or there was some problem with the sequencing).
+#------------------------------------------------------------------------------------------------------------------
+
+
+########################################################################################################################
+
+
+	# Estimate Normalization factors
+DESeq2Table <- estimateSizeFactors(dds)
+
+ 	# Ispect the size factors
+sizeFactors <- sizeFactors(DESeq2Table)
+sizeFactors
+
+	# Use estimateDispersions to calculate dispersion values:
+dds.norm <- estimateDispersions(DESeq2Table)
+# found already estimated dispersions, replacing these
+# gene-wise dispersion estimates
+# mean-dispersion relationship
+# final dispersion estimates
+
+dds.norm
+
+########################################################################################################################
+
+# How to get normalized counts from DESeq? http://seqanswers.com/forums/showthread.php?t=6026  
+
+normal_counts <- GeneCounts.norm
+###normal_counts <- t(t(counts(dds))/sizeFactors)
+colnames(normal_counts)[1] <- "KOHC1_norm"
+colnames(normal_counts)[2] <- "KOHC2_norm"
+colnames(normal_counts)[3] <- "KOHC3_norm"
+colnames(normal_counts)[4] <- "KONE1_norm"
+colnames(normal_counts)[5] <- "KONE2_norm"
+colnames(normal_counts)[6] <- "KONE3_norm"
+colnames(normal_counts)[7] <- "WTHC1_norm"
+colnames(normal_counts)[8] <- "WTHC2_norm"
+colnames(normal_counts)[9] <- "WTHC3_norm"
+colnames(normal_counts)[10] <- "WTNE1_norm"
+colnames(normal_counts)[11] <- "WTNE2_norm"
+colnames(normal_counts)[12] <- "WTNE3_norm"
+head(normal_counts)
+normal_counts <- data.frame(normal_counts)
+
+	# Save data results and normalized reads to csv table
+resdata1 <- merge(as.data.frame(GeneCounts), as.data.frame(normal_counts), by='row.names',sort=F,all.x=T)
+names(resdata1)[1] <- 'genes'
+head(resdata1)
+
+	# Produce DataFrame of results of statistical tests could way to record experimental design.
+mcols(res, use.names = T)
+write.csv(as.data.frame(mcols(res, use.name = T)),file = "DATE-DESeq2-test-conditions.csv")
+
+########################################################################################################################
+##Inspect the estimated dispersions (using PlotDispEst function)
+
+# A simple helper function that plots the per-gene dispersion estimates together with the fitted mean-dispersion 
+# relationship.
+
+par( mfrow = c(1,1 ) )
+plotDispEsts(dds.norm)
+dev.copy(png,"plotDispEsts.png")
+dev.off()
+
+########################################################################################################################
+########################################################################################################################
+
+###Get the significant genes
+
+library(GenomeInfoDb)
+library(GenomicRanges)
+library("BiocGenerics")
+library("BiocParallel")
+
+names(DESeq2Res)
+#[1] "baseMean"       "log2FoldChange" "lfcSE"          "stat"          
+#[5] "pvalue"         "padj"  
+
+write.csv(as.data.frame(DESeq2Res),file="results.csv")
+
+########################################################################################################################
+
+# Load the annotation database
+library("org.Mm.eg.db")
+library("AnnotationDbi")
+# set up your query genes
+
+columns(org.Mm.eg.db)
+# [1] "ACCNUM"       "ALIAS"        "ENSEMBL"      "ENSEMBLPROT"  "ENSEMBLTRANS"
+# [6] "ENTREZID"     "ENZYME"       "EVIDENCE"     "EVIDENCEALL"  "GENENAME"    
+#[11] "GO"           "GOALL"        "IPI"          "MAP"          "OMIM"        
+#[16] "ONTOLOGY"     "ONTOLOGYALL"  "PATH"         "PFAM"         "PMID"        
+#[21] "PROSITE"      "REFSEQ"       "SYMBOL"       "UCSCKG"       "UNIGENE"     
+#[26] "UNIPROT"     
+
+k <- keys(org.Mm.eg.db, keytype="ENSEMBL")
+head(k)
+
+DESeq2Res$symbol <- mapIds(org.Mm.eg.db,
+                     keys=row.names(DESeq2Res),
+                     column="SYMBOL",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+DESeq2Res$entrez <- mapIds(org.Mm.eg.db,
+                     keys=row.names(DESeq2Res),
+                     column="ENTREZID",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+DESeq2Res$GO <- mapIds(org.Mm.eg.db,
+                     keys=row.names(DESeq2Res),
+                     column="GO",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+
+DESeq2Res$Genename <- mapIds(org.Mm.eg.db,
+                     keys=row.names(DESeq2Res),
+                     column="GENENAME",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+
+
+
+########################################################################################################################
+
+# Gene Table Final results
+
+write.csv(as.data.frame(resdata1),file="counts.csv")
+resdata1 <- merge(as.data.frame(GeneCounts), as.data.frame(normal_counts), by='row.names',sort=F,all.x=T)
+names(resdata1)[1] <- 'genes'
+head(resdata1)
+
+df<-data.frame(rownames(DESeq2Res),DESeq2Res)
+colnames(df)[1]="genes"
+resdata2 <- as.data.frame(df)
+write.csv(as.data.frame(resdata2),file="results.csv")
+head(df)
+
+genestotales <- merge(df,resdata1, by='genes',sort=F,all.x=T)
+write.csv(as.data.frame(genestotales),file="lista_final_KOvsWT.csv")
+
+##############################################################################################
+########################################################################################################################
+
+	#rlog transformation
+
+rld <- rlogTransformation(dds, blind=T)
+
+con <- as.character(colData(DESeq2Table)$genotype)
+con
+
+colData(DESeq2Table)$genotype <- factor(con)
+colData(DESeq2Table)$genotype
+
+# Save normalized values
+write.table(as.data.frame(assay(rld),file='DATE-DESeq2-rlog-transformed-counts.txt', sep='\t'))
+
+
+assay(rld)
+
+rld_dataframe <-data.frame(rownames(assay(rld)),assay(rld))
+colnames(rld_dataframe)[1]="genes"
+head(rld_dataframe)
+head(rld_dataframe)[1]
+
+colnames(rld_dataframe)[2] <- "rld_KOHC1"
+colnames(rld_dataframe)[3] <- "rld_KOHC2"
+colnames(rld_dataframe)[4] <- "rld_KOHC3"
+colnames(rld_dataframe)[5] <- "rld_KONE1"
+colnames(rld_dataframe)[6] <- "rld_KONE2"
+colnames(rld_dataframe)[7] <- "rld_KONE3"
+colnames(rld_dataframe)[8] <- "rld_WTHC1"
+colnames(rld_dataframe)[9] <- "rld_WTHC2"
+colnames(rld_dataframe)[10] <- "rld_WTHC3"
+colnames(rld_dataframe)[11] <- "rld_WTNE1"
+colnames(rld_dataframe)[12] <- "rld_WTNE2"
+colnames(rld_dataframe)[13] <- "rld_WTNE3"
+write.csv(as.data.frame(rld_dataframe),file="rlog_rld_results.csv")
+genestotales1 <- merge(genestotales,rld_dataframe, by='genes',sort=F,all.x=T)
+write.csv(as.data.frame(genestotales1),file="lista_final_KOvsWT.csv")
+
+rld_matrix <- as.matrix(rld_dataframe[,c(2:13)])
+head(rld_matrix)
+dim(rld_matrix) ## [1] 26278    12
+colnames(rld_matrix)
+# [1] "rld_KOHC1" "rld_KOHC2" "rld_KOHC3" "rld_KONE1" "rld_KONE2" "rld_KONE3"
+# [7] "rld_WTHC1" "rld_WTHC2" "rld_WTHC3" "rld_WTNE1" "rld_WTNE2" "rld_WTNE3"
+
+rld_mean <- rowMeans(rld_matrix[,c(7:9)])
+head(rld_mean)
+LFC_rld <- rld_matrix - rld_mean
+colnames(LFC_rld)[1] <- "LFCrld_KOHC1"
+colnames(LFC_rld)[2] <- "LFCrld_KOHC2"
+colnames(LFC_rld)[3] <- "LFCrld_KOHC3"
+colnames(LFC_rld)[4] <- "LFCrld_KONE1"
+colnames(LFC_rld)[5] <- "LFCrld_KONE2"
+colnames(LFC_rld)[6] <- "LFCrld_KONE3"
+colnames(LFC_rld)[7] <- "LFCrld_WTHC1"
+colnames(LFC_rld)[8] <- "LFCrld_WTHC2"
+colnames(LFC_rld)[9] <- "LFCrld_WTHC3"
+colnames(LFC_rld)[10] <- "LFCrld_WTNE1"
+colnames(LFC_rld)[11] <- "LFCrld_WTNE2"
+colnames(LFC_rld)[12] <- "LFCrld_WTNE3"
+
+LFCrld_df <- as.data.frame(LFC_rld)
+head(LFCrld_df)
+LFCrld_df$genes <- rownames(LFCrld_df)
+genestotales2 <- merge(genestotales1,LFCrld_df, by='genes',sort=F,all.x=T)
+write.csv(as.data.frame(genestotales2),file="lista_final_KOvsWT.csv")
+dim(genestotales2)
+# [1] 26278    60
+
+########################################################################################################################
+#### SUBSET the differentially expressed genes
+### [select a genes of interest]
+
+genes_padj01 <- subset(genestotales2, padj<0.1)  ### 10% 
+head(genes_padj01)
+dim(genes_padj01) # [1] 625  36
+
+genes_padj005 <- subset(genestotales2, padj<0.05) ### 5%
+dim(genes_padj005) # [1] 471  36
+
+
+colnames(genes_padj01)
+#  [1] "genes"          "baseMean"       "log2FoldChange" "lfcMLE"        
+#  [5] "lfcSE"          "stat"           "pvalue"         "padj"          
+#  [9] "symbol"         "entrez"         "GO"             "Genename"      
+# [13] "KOHC1.txt"      "KOHC2.txt"      "KOHC3.txt"      "KONE1.txt"     
+# [17] "KONE2.txt"      "KONE3.txt"      "wtHC1.txt"      "wtHC2.txt"     
+# [21] "wtHC3.txt"      "wtNE1.txt"      "wtNE2.txt"      "wtNE3.txt"     
+# [25] "KOHC1_norm"     "KOHC2_norm"     "KOHC3_norm"     "KONE1_norm"    
+# [29] "KONE2_norm"     "KONE3_norm"     "WTHC1_norm"     "WTHC2_norm"    
+# [33] "WTHC3_norm"     "WTNE1_norm"     "WTNE2_norm"     "WTNE3_norm"    
+# [37] "rld_KOHC1"      "rld_KOHC2"      "rld_KOHC3"      "rld_KONE1"     
+# [41] "rld_KONE2"      "rld_KONE3"      "rld_WTHC1"      "rld_WTHC2"     
+# [45] "rld_WTHC3"      "rld_WTNE1"      "rld_WTNE2"      "rld_WTNE3"     
+# [49] "LFCrld_KOHC1"   "LFCrld_KOHC2"   "LFCrld_KOHC3"   "LFCrld_KONE1"  
+# [53] "LFCrld_KONE2"   "LFCrld_KONE3"   "LFCrld_WTHC1"   "LFCrld_WTHC2"  
+# [57] "LFCrld_WTHC3"   "LFCrld_WTNE1"   "LFCrld_WTNE2"   "LFCrld_WTNE3" 
+
+#### Heatmap to LFC (colums 49 to 60, to genestotales2) 
+
+LFC_matrix <- as.matrix(genes_padj01[,c(49:60)])
+colnames(LFC_matrix)
+#  [1] "LFCrld_KOHC1" "LFCrld_KOHC2" "LFCrld_KOHC3" "LFCrld_KONE1" "LFCrld_KONE2"
+#  [6] "LFCrld_KONE3" "LFCrld_WTHC1" "LFCrld_WTHC2" "LFCrld_WTHC3" "LFCrld_WTNE1"
+# [11] "LFCrld_WTNE2" "LFCrld_WTNE3"
+
+head(LFC_matrix)
+dim(LFC_matrix) # [1]  729  12
+
+library(gplots)
+cols = colorpanel(99,'blue','white','red')
+min(LFC_matrix) # [1]  -0.7730022
+max(LFC_matrix) # [1]   1.607341
+
+####################################################################################################
+
+breaks = seq(-0.7,0.7,length=100)
+hm <- heatmap.2(LFC_matrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=genes_padjñ$symbol, cexRow=0.7, cexCol=1, main="KOvsWT")
+dev.copy(png,"Kdm5c_KOvsWT.png") 
+dev.off()
+#hm <- heatmap.2(LFC_matrix_KOvsWT, col=cols, breaks=breaks, trace='none', density= 'none', labRow=F, cexCol=1, main="NEvsHC")
+#dev.copy(png,"Kdm5c_KOvsWT.png") 
+#dev.off()
+breaks = seq(-0.9,0.9,length=100)
+hm <- heatmap.2(LFC_matrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=F, cexCol=1, main="KOvsWT")
+dev.copy(png,"Kdm5c_KOvsWT_2.png") 
+dev.off()
+
+library(pheatmap)
+pm <- pheatmap(LFC_matrix, col=cols, breaks=breaks, trace='none', density= 'none', show_rownames=F, cexCol=1, main="KOvsWT")
+dev.copy(png,"Kdm5c_KOvsWT_pm.png") 
+dev.off()
+
+
+
+#######################################################################################################
+#biocLite("geneplotter")
+library(geneplotter)
+
+#-----------------------------------------------------------------
+# To assess whether the normalization has worked, we plot 
+# the densities of counts for the different samples. Since most # of the genes are (heavily) affected by the experimental 
+# conditions, a succesful normalization will lead to 
+# overlapping densities.
+#-----------------------------------------------------------------
+
+par( mfrow = c( 1, 1) )
+multidensity( counts(DESeq2Table, normalized = T)[idx.nz ,],
+              xlab="mean counts", xlim=c(0, 1000))
+dev.copy(png,"multidensity.png")
+dev.off()
+
+
+########################################################################################################################
+
+#-----------------------------------------------------------------
+# The same holds true for the empircal cummulative distribution functions (ECDFs) which can be thought of as 
+# integrals of the densities and give the probability of observing a certain number of counts equal to x or less given the 
+# data.
+# In an ECDF plot, the estimated probility is plotted on the y–axis and the count values on the x–axis. I.e. you can read 
+# of the median and other quantiles from this plot.
+# As already mentioned, if the normalization has worked, the ECDFs of the different samples should be overlapping.
+#-----------------------------------------------------------------
+
+multiecdf( counts(DESeq2Table, normalized = T)[idx.nz ,],xlab="mean counts", xlim=c(0, 1000))
+dev.copy(png,"multiecdf.png")
+dev.off()
+
+########################################################################################################################
+
+#### MA plots
+
+source("https://bioconductor.org/biocLite.R")
+#biocLite("EDASeq")
+library("EDASeq")
+library(limma)
+#biocLite("biocGenerics")
+library(BiocGenerics)
+
+# The MA-plot of log2 fold changes returned by DESeq2 allows us to see how the shrinkage of fold changes works for 
+# genes with low counts. You can still obtain results tables which include the “unshrunken" log2 fold changes (for a 
+# simple comparison, the ratio of the mean normalized counts in the two groups). A column lfcMLE with the 
+# unshrunken maximum likelihood estimate (MLE) for the log2 fold change will be added with an additional argument 
+# to results:
+
+resMLE <- results(dds, addMLE=TRUE)
+head(resMLE,4)
+
+# One can make an MA-plot of the unshrunken estimates like so:
+DESeq2::plotMA(resMLE, MLE=TRUE, main ="unshrunken_LFC",  ylim=c(-6,6))
+dev.copy(png,"Maplot-unshrunken_LFC.png")
+dev.off()
+
+# These plots show the log2 fold changes from the treatment over the mean of normalized counts, i.e. the average of 
+# counts normalized by size factors. The left plot shows the “unshrunken" log2 fold changes, while the right plot, 
+# produced by the code above, shows the shrinkage of log2 fold changes resulting from the incorporation of zero-
+# centered normal prior. 
+
+# The function plotMA shows the log2 fold changes attributable to a given variable over the mean of normalized 
+# counts. Points will be colored red if the adjusted p value is less than 0.1
+
+DESeq2::plotMA(res, main="DESeq2", ylim=c(-6,6))
+dev.copy(png,"plotMA-DESeq2.png")
+dev.off()
+
+DESeq2::plotMA(res, main="DESeq2", ylim=c(-1.5,1.5))
+dev.copy(png,"plotMA-DESeq2-restricted.png")
+dev.off()
+
+DESeq2::plotMA(res, main="DESeq2pvalue<0.05", ylim=c(-1.5,1.5), res$pvalue<0.05)
+dev.copy(png,"plotMA-DESeq2-pvalue<0.05.png")
+dev.off()
+
+DESeq2::plotMA(res, main="DESeq2padj<0.1", ylim=c(-1.5,1.5), res$padj<0.1)
+dev.copy(png,"plotMA-DESeq2-padj<0.1.png")
+dev.off()
+
+#########################################################################################################################
+
+###Sparsity plot
+
+# A simple plot of the concentration of counts in a single sample over the sum of counts per gene. Not technically the 
+# same as "sparsity", but this plot is useful diagnostic for datasets which might not fit a negative binomial assumption: 
+# genes with many zeros and individual very large counts are difficult to model with the negative binomial distribution.
+#' @examples
+#' dds <- estimateSizeFactors(dds)
+#' plotSparsity(dds)
+
+
+plotSparsity <- function(x, normalized=TRUE, ...) {  if (is(x, "DESeqDataSet")) {
+    x <- counts(x, normalized=normalized)
+  }
+  rs <- rowSums(x)
+  rmx <- apply(x, 1, max)
+  plot(rs[rs > 0], (rmx/rs)[rs > 0], log="x", ylim=c(0,1), xlab="sum of counts per gene",
+       ylab="max count / sum", main="Concentration of counts over total sum of counts", ...)
+}
+
+plotSparsity (dds)
+dev.copy(png, "plotsparsity.png")
+dev.off()
+
+#plotSparsity (ddsClean)
+#dev.copy(png, "plotsparsity-replaceoutliers.png")
+#dev.off()
+
+
+#######################################################################################################
+# Scatterplot of transformed counts from two samples. Shown are scatterplots using the log2 transform of  normalized counts (left side) and using the rlog (right side).
+#-----------------------------------------------------------------------------------------
+# To show the effect of the transformation, in the Figure below we plot the first sample against the second,first simply 
+# using the log2 function (after adding 1, to avoid taking the log of zero), and then using  the rlog-transformed values. 
+#----------------------------------------------------------------------------------------
+
+par( mfrow = c( 1, 2 ) )
+plot(log2(counts(dds, normalized=TRUE)[,1:2] + 1),
+     pch=16, cex=0.3)
+plot(assay(rld)[,1:2],
+     pch=16, cex=0.3)
+dev.copy(png,"effect of the rlog transformation")
+dev.off()
+
+########################################################################################################################
+
+##Variance stabilization
+
+# Variance Stabilizing Transformation
+# We  invoke  this to inspect sample relationships 
+vsd <- varianceStabilizingTransformation(DESeq2Table, blind=TRUE)
+vsd
+
+write.table(as.data.frame(assay(vsd),file='DATE-DESeq2-vst-transformed-counts.txt', sep='\t'))
+
+########################################################################################################################
+
+# Plot to show effect of transformation	
+# - axis is square root of variance over the mean for all samples, so this will naturally included variance due to the 
+# treatment. 
+# The goal here is to flattern the curve so that there is consistent variance across the read counts, and that is what we 
+# got.
+
+par( mfrow = c( 1, 1 ) )
+par(mai = ifelse(1:4 <= 2, par('mai'),0))
+px <- counts(dds)[,1] / sizeFactors(dds)[1]
+ord <- order(px)
+ord <- ord[px[ord] < 150]
+ord <- ord[seq(1,length(ord),length=50)]
+last <- ord[length(ord)]
+vstcol <- c('blue','black')
+matplot(px[ord], cbind(assay(vsd)[,1], log2(px))[ord, ],type='l', lty = 1, col=vstcol, xlab = 'n', ylab = 'f(n)')
+legend('bottomright',legend=c(expression('variance stabilizing transformation'), expression(log[2](n/s[1]))), fill=vstcol)
+dev.copy(png,"DATE-DESeq2_variance_stabilizing.png")
+dev.off()
+
+
+########################################################################################################################
+
+# Eﬀects of transformations on the variance
+
+# Plots that shows the standard deviation of the transformed data, Per-gene standard deviation (taken across samples), 
+# against the rank of the mean counts across, using three different methods of transformation: 
+#	1- the shifted logharitm transformation (dds),that seems to do pretty badly at for low count genes.
+#	2- the regulateg log transformation (rld)
+#	3- the variance stabilizing transformation (vsd), doing a much better job across the entire dynamic range of 
+#	counts.
+
+#biocLite("vsn")
+library("vsn")
+par(mfrow=c(1,3))
+notAllZero <- (rowSums(counts(dds))>0)
+par( mfrow = c(1,1))vsd <- varianceStabilizingTransformation(DESeq2Table, blind=TRUE)
+vsd
+meanSdPlot(log2(counts(dds,normalized=TRUE)[notAllZero,] + 1))
+dev.copy(png, "meanSdPlot dds.png")
+dev.off()
+meanSdPlot(assay(rld[notAllZero,]))
+ dev.copy(png, "meanSdPlot rld.png")
+dev.off()
+meanSdPlot(assay(vsd[notAllZero,]))
+dev.copy(png, "meanSdPlot vsd.png")
+dev.off()
+
+########################################################################################################################
+########################################################################################################################
+par( mfrow = c(1,1))
+
+### --------------------------------- ###
+###  Heatmaps of clustering analysis  ###
+### --------------------------------- ###
+
+#biocLite("gplots")
+library("gplots")
+library("RColorBrewer")
+library("genefilter")
+
+distsRL <- dist(t(assay(rld)))
+mat <- as.matrix(distsRL)
+
+colnames(mat) <-  samplefiles
+colnames(mat)
+
+# We visualize the distances in a heatmap (Clustering analysis) in a Figure below, using the function pheatmap from the 
+# pheatmap package.
+
+#biocLite("pheatmap")
+library("pheatmap")
+library(RColorBrewer)
+
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(mat,
+         clustering_distance_rows=distsRL,
+         clustering_distance_cols=distsRL,
+         col=colors)
+dev.copy(png,"heatmap.png")
+dev.off()
+
+###---------------------------------------------------------------------------------------------###
+
+# Heatmap of 100 top expressed genes with heatmap.2
+select <- order(rowMeans(counts(dds,normalized=T)),decreasing=T)[1:100]
+my_palette <- colorRampPalette(c("blue",'white','red'))(n=100)
+heatmap.2(assay(vsd)[select,], col=my_palette,
+          scale="row", key=T, keysize=1, symkey=T, trace="none",
+          cexCol=0.6,margins = c(10, 11),
+          main="100 top expressed genes")
+dev.copy(png, "DATE-DESeq2-HEATMAP_100topexpressedgenes.png")
+dev.off()
+
+
+###---------------------------------------------------------------------------------------------###
+
+# Heatmap of 20 top expressed genes with heatmap.2
+select <- order(rowMeans(counts(dds,normalized=T)),decreasing=T)[1:20]
+my_palette <- colorRampPalette(c("blue",'white','red'))(n=100)
+heatmap.2(assay(vsd)[select,], col=my_palette,
+          scale="row", key=T, keysize=1, symkey=T, trace="none",
+          cexCol=0.6,margins = c(10, 11),
+          main="20 top expressed genes")
+dev.copy(png, "DATE-DESeq2-HEATMAP_20topexpressedgenes.png")
+dev.off()
+
+###---------------------------------------------------------------------------------------------###
+
+# Heatmap with top variance 20 genes
+
+topVarGenes <- order( rowVars( assay(rld) ), decreasing=TRUE ) [1:20]
+
+hmcol <- colorRampPalette( rev(brewer.pal(9, "RdBu")))(255)
+
+heatmap.2( assay(rld)[ topVarGenes, ], scale="row", trace="none", dendrogram="both",margins = c(10, 11),
+     col = colorRampPalette( rev(brewer.pal(9, "RdBu")) )(255))
+dev.copy(png,"heatmaptop20Var_clustering.png")
+dev.off()
+
+###---------------------------------------------------------------------------------------------###
+
+#Heatmaps showing the expression data of the 20 most highly expressed genes.  The data is:
+#	-- of log2 normalized counts 
+#	-- from regularized log transformation
+#	-- variance stabilizing transformation
+
+select <- order(rowMeans(counts(dds,normalized=TRUE)),decreasing=TRUE)[1:20]
+nt<-normTransform(dds)  # defaults to log2(x+1)
+log2.norm.counts <- assay(nt)[select,]
+df <- as.data.frame (colData(dds))
+pheatmap (log2.norm.counts, cluster_rows=FALSE, show_rownames= T,cluster_cols=T, annotation_col=df, main="pheatmap dds.norm")
+dev.copy(png, "pheatmap_dds_norm.png")
+dev.off()
+pheatmap (assay(rld)[select,], cluster_rows=FALSE, show_rownames= T,cluster_cols=T, annotation_col=df, main="pheatmap rld")
+dev.copy(png, "pheatmap_rld.png")
+dev.off()
+pheatmap (assay(vsd)[select,], cluster_rows=FALSE, show_rownames= T,cluster_cols=T, annotation_col=df, main="pheatmap vsd")
+dev.copy(png, "pheatmap_vsd.png")
+dev.off()
+
+## Let us select the 20 genes with the highest variance across samples. We will work with the rlog 
+# transformed counts.
+
+topVarGenes <- head(order(rowVars(assay(rld)),decreasing=TRUE),20)
+mat <- assay(rld)[ topVarGenes, ]
+mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(rld))
+pheatmap(mat, fontsize_number = 0.8 * fontsize, annotation_col=df, main="heatmap_topvarrld")
+dev.copy(png, "heatmap_topvarrld.png")
+dev.off()
+
+###---------------------------------------------------------------------------------------------###
+
+## Heatmap based on p-values
+
+vsd1 <- getVarianceStabilizedData(dds.norm)
+select <- order(res$pvalue)[1:8]
+heatmap( vsd1[select,], col = colors, scale = "none",margins = c(10, 15))
+dev.copy(png, "heatmap_pvalues <0.05.png")
+dev.off()
+
+########################################################################################################################
+########################################################################################################################
+
+##### PCA plots
+
+# Another way to visualize sample–to–sample distances is a principal–components analysis (PCA). In this ordination 
+# method, the data points (i.e., here, the samples) are projected onto the 2D plane such that they spread out optimally.
+# We then use the function prcomp to compute the principal components 
+
+library("grDevices")
+library('ggplot2')
+library("genefilter")
+library(matrixStats)
+ntop = 500
+Pvars <- rowVars(assay(rld))
+select <- order(Pvars, decreasing=T)[seq_len(min(500,length(Pvars)))]
+PCA <- prcomp(t(assay(rld)[select, ]), scale = F)
+PCA
+head(PCA)
+
+########################################################################################################################
+
+data <- plotPCA (vsd,intgroup =c("activity"),returnData=TRUE)
+data
+
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+percentVar
+# [1] 72.4 13.6  8.2  3.4  2.4  0.0
+
+summary(PCA)
+
+########################################################################################################################
+
+
+par( mfrow = c(1,1 ) )
+print(plotPCA(rld, intgroup = c("activity"))) # We can identify to outliers in the PCA #plot
+dev.copy(png, "DESeq2_PCA_initial_analysis.png")
+dev.off()
+
+#----------------------------------------------------------------------------------------------------------------------#
+
+
+data1 = plot(PCA$x[,1],PCA$x[,2]) # make a scatterplotnames(PCA)
+ind.coord <- PCA$x
+head(ind.coord[, 1:12])
+plot(ind.coord[,1], ind.coord[,2], pch = 19,
+xlab="PC1",ylab="PC2")
+abline(h=0, v=0, lty = 5)
+text(ind.coord[,1], ind.coord[,2],
+labels=rownames(ind.coord),
+cex=0.6, pos = 1)
+dev.copy(png,"PCA")
+dev.off()
+
+head(PCA$sdev) #  the standard deviations of the principal components (the square roots of the eigenvalues)
+head(unclass(PCA$rotation)[, 1:6]) # the matrix of variable loadings (columns are eigenvectors)
+
+########################################################################################################################
+########################################################################################################################
+
+ Variances of the principal components plo
+
+# The variance retained by each principal component can be obtained as follow :
+eig <- (PCA$sdev)^2
+
+# Variances in percentage
+variance <- eig*100/sum(eig)
+
+# Cumulative variances
+cumvar <- cumsum(variance)
+eig.PCA.active <- data.frame(eig = eig, variance = variance,
+                                    cumvariance = cumvar)
+head(eig.PCA.active)
+
+write.csv(eig.PCA.active,"variances.csv")
+
+#You can use the function summary() to extract the eigenvalues and variances from an object of class prcomp. Recall 
+#that eigenvalues measures the variability retained by each PC. It’s large for the first PC and small for the subsequent #PCs.
+summary(eig)
+
+########################################################################################################################
+
+#The importance of principal components
+
+#The eigenvalues measures the variability retained by each PC. It’s large for the first PC and small for the subsequent PCs. 
+#The importance of princpal components (PCs) can be visualized with a scree plot
+
+barplot(eig.PCA.active[, 2], names.arg=1:nrow(eig.PCA.active), 
+        main = "Variances",
+        xlab = "Principal Components",
+        ylab = "Percentage of variances",
+        col ="steelblue")
+
+# Add connected line segments to the plot
+lines(x = 1:nrow(eig.PCA.active), 
+      eig.PCA.active[, 2], 
+      type="b", pch=19, col = "red")
+dev.copy(png,"barplot.png")
+dev.off()
+
+# ~70% of the information (variances) contained in #the data are retained by the first two principal #components.
+
+
+########################################################################################################################
+
+
+
+Gene enrichment Analysis
+
+#Check a validated genes
+#A quick way to visualize the counts for a particular gene is to use the #plotCounts function, which takes as arguments 
+#the DESeqDataSet, a #gene name, and the group over which to plot the counts
+
+par( mfrow = c(1,1 ) )
+topGene <- rownames(res)[which.min(res$padj)]
+d <- plotCounts(dds, gene=topGene, intgroup=c("condition"))
+d
+dev.copy(png,"plotcounts_topgene.png")
+dev.off()
+
+
+########################################################################################################################
+
+##----------------------------------------------------------------------------------------------------------------#
+
+	#MA plot individual points: 
+
+resdata <- merge(as.data.frame(DESeq2Res), as.data.frame(round(counts(dds, normalized=TRUE),2)), by="row.names", sort=FALSE)
+names(resdata)[1] <- "genes"
+head(resdata)
+maplot <- function (DESeq2Res, thresh=0.05, labelsig=TRUE, textcx=1.5, ...) {
+  with(DESeq2Res, plot(baseMean, log2FoldChange, pch=20, cex=0.5, log="x", ...))
+  with(subset(DESeq2Res, pvalue<0.05), points(baseMean, log2FoldChange, col="red", pch=20, cex=1))
+  if (labelsig) {
+    require(calibrate)
+    with(subset(DESeq2Res, pvalue<0.05), textxy(baseMean, log2FoldChange, labs=resdata$symbol,pch=15, cex=0.6, col="red"))
+  }
+}
+maplot(resdata, main="MAPlot Deseq2_pvalue<0.05", ylim=c(-4,4))
+dev.copy(png,"diffexpr-maplot-pvalue005.png")
+dev.off()
+## no puedo ver a que corresponde cada "label"
+
+maplot(resdata, main="MAPlot Deseq2_pvalue<0.05", ylim=c(-2,2))
+dev.copy(png,"diffexpr-maplot-pvalue005.png")
+dev.off()
+
+##----------------------------------------------------------------------------------------------------------------#
+
+
+########################################################################################################################
+
+##Histogrames
+
+#Perform a sanity check by inspecting a histogram of unadjusted p-#value for the differential expression results,
+hist(res$pval, breaks=100)
+dev.copy(png,"res$pval.png")
+dev.off()
+
+#Another useful diagnostic plot is the histogram of the p values (Figure below). This plot is best formed by excluding 
+#genes with very small counts, which otherwise generate spikes in the histogram.
+#Histogram of p values for genes with mean normalized count larger than 1.
+hist(res$pvalue[res$baseMean > 1], breaks=0:20/20, col="grey50", border="white")
+dev.copy(png, "histograme res$pvalue.png")
+dev.off()
+
+#######################################################################################################################
+WT <- read.csv("lista_final_NEvsHC_WT.csv")
+KO <- read.csv("lista_final_NEvsHC_KO.csv")
+
+iKO <- read.csv("kdm5c_KOvsWT_conditionalflox.csv")
+cKO <- read.csv(".csv")
+names(iKO)[4] <- 'log2FoldChangeiKO'
+names(iKO)[5] <- 'lfcMLEiKO'
+names(iKO)[9] <- 'padjiKO'
+names(cKO)[4] <- 'log2FoldChangecKO'
+names(cKO)[5] <- 'lfcMLEcKO'
+names(cKO)[9] <- 'padjcKO'
+resdata1 <- merge(iKO[,c(2,4,5,9,10,26:31)], cKO[,c(2,4,5,9,26:31)], by='genes',sort=F,all.x=T)
+head(resdata1)
+
+#######################################################################################
+library(gdata)
+WT <- read.csv("lista_final_NEvsHC_WT.csv")
+KO <- read.csv("lista_final_NEvsHC_KO.csv")
+
+head(WT)
+head(KO)
+
+names(WT)[4] <- 'log2FoldChangeWT'
+names(WT)[5] <- 'lfcMLEWT'
+names(WT)[9] <- 'padjWT'
+names(KO)[4] <- 'log2FoldChangeKO'
+names(KO)[5] <- 'lfcMLEKO'
+names(KO)[9] <- 'padjKO'
+
+head(WT)
+head(KO)
+
+resdata1 <- merge(WT[,c(2,4,5,9,10,26:31)], KO[,c(2,4,5,9,22:27)], by='genes',sort=F,all.x=T)
+head(resdata1)
+colnames(resdata1)
+write.csv(as.data.frame(resdata1),file="lista_final_NevsHC.csv")
+#HC
+#resdata1 <- HC[,c(2,4,5,9,10,26:31)]
+resSig <- subset(resdata1, padjWT < 0.1)
+#######################################################################################
+iKO <- read.csv("kdm5c_KOvsWT_conditionalflox.csv")
+cKO <- read.csv("lista_final_KOvsWTinHC.csv")
+names(iKO)[4] <- 'log2FoldChangeiKO'
+names(iKO)[5] <- 'lfcMLEiKO'
+names(iKO)[9] <- 'padjiKO'
+names(cKO)[4] <- 'log2FoldChangecKO'
+names(cKO)[5] <- 'lfcMLEcKO'
+names(cKO)[9] <- 'padjcKO'
+# ---- padj 0.1
+resSig <- subset(cKO, padjcKO < 0.1)
+# resSig <- subset(resdata1, padjWT < 0.1)
+write.csv(as.data.frame(resSig),file="lista_final_KOvsWT_iKOvscKO_padj01.csv")
+#resSig_o <- resSig[order(resSig$log2FoldChangeWT),]  
+#resSig_filter <- resSig_o[c(50:90),]
+#head(resSig_filter)
+#colnames(resSig_filter)
+#resSig_filter <- subset(resSig_o, log2FoldChangeWT > 0.5)
+colnames(resSig)
+#head(resSig_filter)
+row.names(resSig) <- resSig$genes
+row.names(KO) <- KO$genes
+row.names(iKO) <- iKO$genes
+rld_matrix2 <- as.matrix(resSig[,c(26:31)])
+rld_matrix1 <- as.matrix(iKO[,c(26:31)])
+#rld_matrix <- as.matrix(resSig[,c(6:11,15:20)])
+
+
+head(rld_matrix1)
+dim(rld_matrix1) ## [1] 625 12
+colnames(rld_matrix1)
+
+head(rld_matrix2)
+dim(rld_matrix2) ## [1] 625 12
+colnames(rld_matrix2)
+
+# rld_matrix <- merge(rld_matrix2, rld_matrix1,by='row.names',sort=F,all.x=T )
+# rownames(rld_matrix) <- rld_matrix[,1]
+# rld_matrix[,1] <- NULL
+# head(rld_matrix)
+#
+# rld_mean <- rowMeans(rld_matrix[,c(1:3)])
+rld_mean1 <- rowMeans(rld_matrix1[,c(4:6)])
+rld_mean2 <- rowMeans(rld_matrix2[,c(4:6)])
+ [1] "rld_KOHC1" "rld_KOHC2" "rld_KOHC3" "rld_WTHC1" "rld_WTHC2" "rld_WTHC3"
+ [7] "rld_KONE1" "rld_KONE2" "rld_KONE3" "rld_WTNE1" "rld_WTNE2" "rld_WTNE3"
+
+head(rld_mean1)
+head(rld_mean2)
+# head(rld_mean)
+# LFC_rld <- rld_matrix - rld_mean
+
+colnames(LFC_rld)[1] <- "LFCrld_WTHC1"
+colnames(LFC_rld)[2] <- "LFCrld_WTHC2"
+colnames(LFC_rld)[3] <- "LFCrld_WTHC3"
+colnames(LFC_rld)[4] <- "LFCrld_WTNE1"
+colnames(LFC_rld)[5] <- "LFCrld_WTNE2"
+colnames(LFC_rld)[6] <- "LFCrld_WTNE3"
+colnames(LFC_rld)[7] <- "LFCrld_KOHC1"
+colnames(LFC_rld)[8] <- "LFCrld_KOHC2"
+colnames(LFC_rld)[9] <- "LFCrld_KOHC3"
+colnames(LFC_rld)[10] <- "LFCrld_KONE1"
+colnames(LFC_rld)[11] <- "LFCrld_KONE2"
+colnames(LFC_rld)[12] <- "LFCrld_KONE3"
+
+LFC_rld1 <- rld_matrix1 - rld_mean1
+LFC_rld2 <- rld_matrix2 - rld_mean2
+colnames(LFC_rld1)[1] <- "LFCrld_iKO1"
+colnames(LFC_rld1)[2] <- "LFCrld_iKO2"
+colnames(LFC_rld1)[3] <- "LFCrld_iKO3"
+colnames(LFC_rld1)[4] <- "LFCrld_iWT1"
+colnames(LFC_rld1)[5] <- "LFCrld_iWT2"
+colnames(LFC_rld1)[6] <- "LFCrld_iWT3"
+colnames(LFC_rld2)[1] <- "LFCrld_KOHC1"
+colnames(LFC_rld2)[2] <- "LFCrld_KOHC2"
+colnames(LFC_rld2)[3] <- "LFCrld_KOHC3"
+colnames(LFC_rld2)[4] <- "LFCrld_WTHC1"
+colnames(LFC_rld2)[5] <- "LFCrld_WTHC2"
+colnames(LFC_rld2)[6] <- "LFCrld_WTHC3"
+
+
+# ----------------------------------
+
+head(LFC_rld1)
+head(LFC_rld2)
+LFC_rld <- merge(LFC_rld2, LFC_rld1, by='row.names',sort=F,all.x=T)
+head(LFC_rld) 
+rownames(LFC_rld) <- LFC_rld[,1]
+LFC_rld[,1] <- NULL
+head(LFC_rld)
+
+LFCrldmatrix <- as.matrix(LFC_rld)
+colnames(LFCrldmatrix)
+min(LFCrldmatrix) # [1]  -0.8343752
+max(LFCrldmatrix) # [1]  1.358669
+library(RColorBrewer)
+library(gplots)
+cols = colorpanel(99,'blue','white','red')
+breaks = seq(-1,1,length=100)
+
+hm01 <- heatmap.2(LFCrldmatrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=resSig$symbol, cexRow=0.6, cexCol=1, main="NevsHC_padj0.1",margins=c(4,8))
+dev.copy2eps(file ='Novelty.eps')
+dev.off()
+head(hm01)
+
+LFC_rld <- as.data.frame(LFC_rld)
+LFC_rld$genes <- rownames(LFC_rld)
+LFC_rld <- merge(LFC_rld, WT[,c(2,10)], by='genes',sort=F,all.x=T)
+LFC_rld[,1]
+head(LFC_rld)
+
+##genotypezoom####LFC_rld <- LFC_rld[c(61,556,280,242,36,590,511,504,10,557,584,457,443,108,264,155,398,455,107,513,610,356,303,623,257,442,621,76,290,558,326,439,57,561,346),]
+#head(LFC_rld)
+
+##Noveltyzoom1####
+
+row.names(LFC_rld) <- LFC_rld$genes
+LFC_rld[,1] <- NULL
+LFC_rld <- LFC_rld[c(112,38,167,133,40,114,7),]
+head(LFC_rld)
+
+#head(LFC_rld)
+
+##Noveltyzoom2###
+row.names(LFC_rld) <- LFC_rld$genes
+LFC_rld[,1] <- NULL
+LFC_rld <- LFC_rld[c(12,65,63,178,13,151,150,162,98),]
+head(LFC_rld)
+
+
+#row.names(LFC_rld) <- LFC_rld$genes
+#LFC_rld[,1] <- NULL
+#write.csv(LFC_rld, "LFC_rld.csv")
+#LFC_rld <- read.csv("LFC_rld.csv")
+#row.names(LFC_rld) <- LFC_rld$X
+#LFC_rld[,1] <- NULL
+
+breaks = seq(-1.4,1.4,length=100)
+#LFCrldmatrix <- as.matrix(LFC_rld[,(1:12)]) 
+#heatmap.2(LFCrldmatrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=LFC_rld$symbol, cexRow=0.8, cexCol=1, main="NevsHC_padj0.1",margins=c(4,8))
+
+
+tiff(file="Novelty.tiff", 750,1500, pointsize=20)
+heatmap.2(LFCrldmatrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=LFC_rld$symbol, cexRow=1, cexCol=1, main="NEvsHC_padj0.1",margins=c(4,8))
+dev.off()
+
+### hm01 rowDendrogram NevsHC
+###'dendrogram' with 2 branches and 186 members total, at height 4.92382  
+tiff(file="Heatmapnovelty_zoom.tiff", 750,1500, pointsize=20)
+heatmap.2(LFCrldmatrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=LFC_rld$symbol, cexRow=0.6, cexCol=1, main="NEvsHC_padj0.1",margins=c(4,8))
+dev.off()
+
+heatmap.2(LFCrldmatrix, col=cols, breaks=breaks, trace='none', density= 'none', labRow=LFC_rld$symbol, cexRow=1, cexCol=1, main="NEvsHC_padj0.1",margins=c(4,8))
+dev.copy2eps(file ='Heatmapnovelty_zoom.eps')
+
+hm01 
+hc <- as.hclust(hm01$rowDendrogram)
+hc$labels[hc$order]
+info <- str(as.dendrogram(hc))
+plot(hc)
+plot(hc, labels=F)
+plot(hc, labels=F, hang=-1)
+dev.copy2eps(file ='dendro_ikovscko.eps')
+dev.off()
+
+tiff(file="dendro_iKOvscKo.tiff", 3000,1000, pointsize=20)
+plot(hc, labels=F, hang=-1)
+dev.off()
+
+
+1)
+tiff(file="Heatmap.tiff", 750,1500, pointsize=20)
+heatmap.2()
+dev.off()
+
+2)
+heatmap.2()
+dev.copy2eps(file ='Heatmap.eps')
+
+####################################################################################
+##Barsplot
+require(ggplot2)
+cdata <- read.csv("tabla_se_conventional_novelty.csv")
+pdf(file="bars_cKO.pdf")
+ggplot(cdata, aes(x=symbol, y=Measure.mean, fill=Sbj.Group)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=Measure.mean-se, ymax=Measure.mean+se), width=.2,
+                 position=position_dodge(.9)) +
+ylab ("Measure scale") +  xlab ("") +
+  theme_bw() + 
+  scale_colour_manual(values=c("black","black","black","black")) +
+  scale_fill_manual(values=c("KOHC"="brown2", "WTNE"="aliceblue","KONE"="darkorange","ctrl_WTHC"="darkolivegreen1")) +
+  guides(fill=guide_legend(title=NULL))
+dev.off()
+##########################################################################
+tiff(file="bars_ifKO.tiff", 500,500, pointsize=20)
+ggplot(cdata, aes(x=symbol, y=Measure.mean, fill=Sbj.Group)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=Measure.mean-se, ymax=Measure.mean+se), width=.2,
+                 position=position_dodge(.9)) +
+ylab ("Measure scale") +  xlab ("") +
+  theme_bw() + 
+  scale_colour_manual(values=c("black","black")) +
+  scale_fill_manual(values=c("ifKO"="brown2","ctrl_WT"="darkolivegreen1")) +
+  guides(fill=guide_legend(title=NULL))
+dev.off()
+
+p<- ggplot(cdata, aes(x=symbol, y=Measure.mean, fill=Sbj.Group)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=Measure.mean-se, ymax=Measure.mean+se), width=.2,
+                 position=position_dodge(.9)) +
+ylab ("Measure scale") +  xlab ("") +
+  theme_bw() + 
+  scale_colour_manual(values=c("black","black","black","black")) +
+  scale_fill_manual(values=c("KOHC"="brown2", "WTNE"="aliceblue","KONE"="darkorange","WTHC"="darkolivegreen1")) +
+  guides(fill=guide_legend(title=NULL))
+
+############################################################################
+############################################################################
+
+
+library(GenomicFeatures)
+library(rtracklayer)
+
+# https://bioconductor.org/packages/release/bioc/vignettes/GenomicFeatures/inst/doc/GenomicFeatures.pdf
+# https://www.biostars.org/p/83901/
+#When you have used htseq-count on each of your 'RNA-seq' samples and have combined all of your samples #in a read count matrix, you might want to turn the absolute read counts into FPKM at some time. #Therefore you need the total amount (maybe TMM/quartile-normalized) of mapped reads for each sample 
+# (easy) and the total exonic length for each gene (tricky)
+
+#The problem is that a gene can have multiple transcripts where the exons of transcript 1 might be #partially overlapping with the exons of transcript2. So simply adding up the length of all exons 
+# annotated for a specific gene overestimates the gene size while taking the length of just 1 of the 
+# transcripts underestimates. Using the GenomicFeatures package from Bioconductor you can easily handle # this issue.
+
+## obtain gene_length
+txdb <- makeTxDbFromGFF("Mus_musculus.GRCm38.83.gtf",format="gtf")
+txdb
+# Db type: TxDb
+# Supporting package: GenomicFeatures
+# Data source: Mus_musculus.GRCm38.83.gtf
+# Organism: NA
+# Taxonomy ID: NA
+# miRBase build ID: NA
+# Genome: NA
+# transcript_nrow: 113326
+# exon_nrow: 448434
+# cds_nrow: 232100
+# Db created by: GenomicFeatures package from Bioconductor
+# Creation time: 2016-06-01 11:57:45 +0200 (Wed, 01 Jun 2016)
+# GenomicFeatures version at creation time: 1.22.13
+# RSQLite version at creation time: 1.0.0
+# DBSCHEMAVERSION: 1.1
+
+## obtain exon length
+
+# First, import the GTF-file that you have also used as input for htseq-count
+library(GenomicFeatures)
+# txdb <- makeTranscriptDbFromGFF("yourFile.gtf",format="gtf")
+txdb <- makeTxDbFromGFF("Mus_musculus.GRCm38.83.gtf",format="gtf")
+# Prepare the 'metadata' data frame ... OK
+# Make the TxDb object ... oK
+
+# then collect the exons per gene id
+exons.list.per.gene <- exonsBy(txdb,by="gene")
+# then for each gene, reduce all the exons to a set of non overlapping exons, calculate their lengths (widths) and sum then
+exonic.gene.sizes <- lapply(exons.list.per.gene,function(x){sum(width(reduce(x)))})
+
+exonic <- as.data.frame(exonic.gene.sizes, rownames=exonic.gene.sizes$names)
+exonic <- (t(exonic))
+head(exonic)
+
+write.table(exonic,"exoniclist.csv")
+
+
+###########################################
+## https://www.biostars.org/p/165226/
+exons.list.per.gene <- exonsBy(txdb, by="gene")
+
+## obtain intron length
+exons.list.per.gene <- reduce(exons.list.per.gene)
+exons <- exons.list.per.gene[sapply(exons.list.per.gene, length) > 1]
+
+introns <- lapply(exons, function(x) {
+    #Make a "gene" GRange object
+    gr = GRanges(seqnames=seqnames(x)[1], ranges=IRanges(start=min(start(x)),
+        end=max(end(x))), 
+        strand=strand(x)[1])
+    db = disjoin(c(x, gr))
+    ints = db[countOverlaps(db, x) == 0]
+    #Add an ID
+    if(as.character(strand(ints)[1]) == "-") {
+        ints$exon_id = c(length(ints):1)
+    } else {
+        ints$exon_id = c(1:length(ints))
+    }
+    ints
+})
+introns <- GRangesList(introns)
+
+#################################
+
+tx <- transcripts(txdb)
+tx <- as.data.frame(tx)
+write.table(tx, "transcripts.txt")
+
+p <-promoters(transcripts(txdb), upstream=100, downstream=100)
+p <- as.data.frame(p)
+write.table(p, "promoters_up100_down100.txt")
+#######################################
+library(gdata)
+kdm <- read.xls("kdm5c_KOvsWT_inHC_conventional.xls")
+exon <- read.xls("exoniclist.xls")
+data <- merge(kdm, exon, by='genes',sort=F,all.x=T)
+dim(data) # [1] 24633    38
+write.table(data,"kdm5c.csv")
+
+#sum_WTHCnorm
+#24860136.19
+#sum_KOHCnorm
+#75624869.72
+
+## RPKM = (10^9 * number_mapped_reads_of_each_gene)/(total_reads * gene_length)
+## exon_gene_length = sum all exons for a transcript to get the transcript size
+
+############################################################################
+#########################
+source("https://bioconductor.org/biocLite.R")
+biocLite("biobroom")
+library(gdata)
+kdm <- ("kdm5c.xls")
+
+quantile(kdm$RPKM_WTHC, prob = seq(0, 1, length = 11), type = 5)
+#          0%          10%          20%          30%          40%          50% 
+#0.000000e+00 5.769537e-02 1.852693e-01 5.149212e-01 1.425218e+00 3.936361e+00 
+#         60%          70%          80%          90%         100% 
+#9.411149e+00 1.808465e+01 3.184586e+01 6.394028e+01 2.140468e+04 
+
+
+############################################################################
+#--------------------------------
+library(gdata)
+library(ggplot2)
+###############################################################
+pdf(file="kdm5c_TPM_cKO.pdf")
+ggplot(cKo, aes(x=Log10_TPMWT, y= log2FoldChange , colour=cKo$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","red"))
+dev.off()
+
+pdf(file="kdm5c_TPM_ifKO.pdf")
+ggplot(ifKO, aes(x=log10_TPMWT, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue"))
+dev.off()
+
+ggplot(cKo, aes(x=Log10_TPMWT, y= log2FoldChange , colour=cKo$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","red"))
+dev.copy2eps(file ='kdm5c_TPM_cKO.eps')
+dev.off()
+
+ggplot(ifKO, aes(x=log10_TPMWT, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue"))
+dev.copy2eps(file ='kdm5c_TPM_ifKO.eps')
+dev.off()
+
+
+pdf(file="kdm5c_TPM_cKO_labels.pdf")
+ggplot(cKo, aes(x=Log10_TPMWT, y= log2FoldChange , colour=cKo$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","red")) +geom_text(aes(label=symbol))
+dev.off()
+
+pdf(file="kdm5c_TPM_ifKO_labels.pdf")
+ggplot(ifKO, aes(x=log10_TPMWT, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) +geom_text(aes(label=symbol))
+dev.off()
+####################################################################
+
+pdf(file="kdm5c_TPM_cKO2.pdf")
+ggplot(cKo, aes(x=Log2.TPMWT..1, y= log2FoldChange , colour=cKo$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","red"))
+dev.off()
+
+pdf(file="kdm5c_TPM_ifKO2.pdf")
+ggplot(ifKO, aes(x=log2_TPMWT, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue"))
+dev.off()
+
+ggplot(cKo, aes(x=Log2.TPMWT..1, y= log2FoldChange , colour=cKo$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","red"))
+dev.copy2eps(file ='kdm5c_TPM_cKO2.eps')
+dev.off()
+
+ggplot(ifKO, aes(x=log2_TPMWT, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue"))
+dev.copy2eps(file ='kdm5c_TPM_ifKO2.eps')
+dev.off()
+
+
+pdf(file="kdm5c_TPM_cKO_labels2.pdf")
+ggplot(cKo, aes(x=Log2.TPMWT..1, y= log2FoldChange , colour=cKo$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","red")) +geom_text(aes(label=symbol))
+dev.off()
+
+pdf(file="kdm5c_TPM_ifKO_labels2.pdf")
+ggplot(ifKO, aes(x=log2_TPMWT, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) +geom_text(aes(label=symbol))
+dev.off()
+###################################################################################
+############################################################################
+
+library(ggplot2)
+ifKO <- read.xls("ifKO_kdm5c_list.xls")
+colnames(ifKO)
+cKO <- read.xls("kdm5c_KOvsWtinHC_cKO_TPMraws.xls")
+colnames(cKO)
+
+ggplot(ifKO, aes(x=TPM_ifWT_promedio, y= padj , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue"))
+
+ggplot(cKO, aes(x=TPM_WTHC_promedio, y= log2FoldChange , colour=cKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) 
+
+ggplot(ifKO, aes(x=TPM_ifWT_promedio, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) +geom_text(aes(label=symbol))
+
+ggplot(cKO, aes(x=TPM_WTHC_promedio, y= log2FoldChange , colour=cKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) +geom_text(aes(label=symbol))
+
+
+ggplot(ifKO, aes(x=TPM_ifWT_promedio, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) + xlim(0,1000)
+dev.copy2eps(file ='kdm5c_TPM_if.eps')
+dev.off()
+
+ggplot(ifKO, aes(x=TPM_ifWT_promedio, y= log2FoldChange , colour=ifKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","blue")) + xlim(0,1000)  + geom_text(aes(label=symbol))
+dev.copy2eps(file ='kdm5c_TPM_if_labels.eps')
+dev.off()
+
+#Warning message:
+#Removed 62 rows containing missing values (geom_point). 
+
+ggplot(cKO, aes(x=TPM_WTHC_promedio, y= log2FoldChange , colour=cKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","darkorange")) + xlim(0,1000) 
+dev.copy2eps(file ='kdm5c_TPM_cKO.eps')
+dev.off()
+
+ggplot(cKO, aes(x=TPM_WTHC_promedio, y= log2FoldChange , colour=cKO$padj<0.1)) + geom_point(size=1) +scale_colour_manual(values = c("grey","darkorange")) + xlim(0,1000) + geom_text(aes(label=symbol))
+dev.copy2eps(file ='kdm5c_TPM_cKO_labels.eps')
+dev.off()
+
+##########
+colors()[grep("red",colors())]
+########################################################################################################################
+
+
+
+
