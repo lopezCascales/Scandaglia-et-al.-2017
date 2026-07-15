@@ -1,0 +1,52 @@
+
+#####################################################################################################################
+
+## we need .bam sorted by name
+samtools sort -n wt1_Aligned.out.SortedPos.bam -o wt1_Aligned.out.Sorted.bam
+
+######################################################################################################################
+# Convert BAM to SAM
+#
+#	
+# 	##1 # Two or more files bam to sam
+for file in ./*.bam
+do
+echo $file 
+samtools view -h $file > ${file/.bam/.sam}
+done
+	
+	## 2 # One file (# with all the generated files)
+
+# samtools view -h -o wt1_Aligned.out.Sorted.sam wt1_Aligned.out.Sorted.bam 
+#######################################################################################################################
+
+# Generate counts 
+
+for file in ./*.sam
+do
+echo $file 
+htseq-count  -s reverse $file Mus_musculus.GRCm38.83.gtf > ${file/.sam/.txt}
+done
+
+# htseq-count  -s reverse wt1_Aligned.out.Sorted.sam Mus_musculus.GRCm38.83.gtf > counts_wt1.txt
+
+########################################################################################################################
+## Rename files
+wt1_Aligned.out.Sorted.txt = wt1counts.txt
+
+########################################################################################################################
+
+# Sum the number of reads in a file
+sum=0;for i in $(cat wt1counts.txt);do sum=$((sum+$i));done;echo $sum
+ 
+awk '{s+=$2}END{print s}'  wt1counts.txt
+#72584067 # $2 is column 2
+
+# sum the read counts
+seq 47069 | awk '{s+=$2}END{print s}'  wt1counts.txt
+
+
+########################################################################################################################
+
+
+
