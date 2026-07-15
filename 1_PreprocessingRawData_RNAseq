@@ -1,0 +1,117 @@
+########################################################################################################################
+##[STAR] Spliced Transcripts Alignment to a Reference © Alexander Dobin, 2009-2015
+
+# https://github.com/alexdobin/STAR/releases  (latest version 2.5.0c) 
+# References: 
+	# STAR: ultrafast universal RNA-seq aligner. Alexander Dobin. Bioinformatics (2012) 
+	# STAR manual 2.5.0a Alexander Dobin Nov, 2015
+########################################################################################################################
+
+####3.1) Alignment generate genome. 
+STAR --runMode genomeGenerate --genomeDir ./genoma_index --genomeFastaFiles ./Mus_musculus.GRCm38.dna.primary_assembly.fa 
+--sjdbGTFfile ./Mus_musculus.GRCm38.83.gtf --runThreadN 4 --sjdbOverhang 74 --genomeSAsparseD 2 --genomeSAindexNbases 13
+
+#Jan 11 10:32:58 ..... Started STAR run
+#Jan 11 10:32:58 ... Starting to generate Genome files
+#Jan 11 10:33:46 ... starting to sort  Suffix Array. This may take a long time...
+#Jan 11 10:33:52 ... sorting Suffix Array chunks and saving them to disk...
+#Jan 11 10:58:15 ... loading chunks from disk, packing SA...
+#Jan 11 11:03:45 ... Finished generating suffix array
+#Jan 11 11:03:45 ... starting to generate Suffix Array index...
+#Jan 11 11:09:00 ..... Processing annotations GTF
+#Jan 11 11:09:35 ..... Inserting junctions into the genome indices
+#Jan 11 11:41:16 ... writing Genome to disk ...
+#Jan 11 11:41:38 ... writing Suffix Array to disk ...
+#Jan 11 11:43:51 ... writing SAindex to disk
+#Jan 11 11:43:54 ..... Finished successfully
+
+#After STAR runs, you should have a few files in the  directory:
+#1. Genome 
+#2. genomeParameters.txt 
+#3. chrLength.txt, chrName.txt, chrName.txt, chrStart.txt 
+#4. SA files ('SA_0', 'SA_1', 'SA_2'…) with aprox. Size 2.6Gb each one → they are converted in SAindex
+#5. Log.out 
+
+#STAR will use these files for alignment in the next step.
+########################################################################################################################
+
+#3.2) Alignment to genome (or transcriptome) and Sorting (# with all the files)
+
+$ STAR --genomeDir ./index_genome_GRCm38 --readFilesIn ./wt_1_1.fastq ./wt_1_2.
+fastq --outSAMtype BAM Unsorted  --runThreadN 4
+Mar 01 17:37:45 ..... Started STAR run
+Mar 01 17:37:45 ..... Loading genome
+Mar 01 17:40:06 ..... Started mapping
+Mar 01 18:12:00 ..... Finished successfully
+
+#STAR will generate a few files:
+ #1. Log.out 
+ #2. Log.progress.out 
+ #3. Log.final.out – summary mapping statistics – will give you an idea on qc 
+ #4. Aligned.out.bam
+ #5. SJ.out.tab – high confidence splice junction in tab-delimited format 
+   
+###########################################################################################################################
+
+## Rename the files
+
+Aligned.out.bam = wt1_Aligned.out.bam
+
+###########################################################################################################################
+
+# Sort and Index
+
+$ samtools sort wt1_Aligned.out.bam -o wt1_Aligned.out.SortedPos.bam
+[bam_sort_core] merging from 44 files...
+
+$ samtools index wt1_Aligned.out.SortedPos.bam
+
+# Counts number of reads/mapped locations in a bam file
+$samtools view -c wt1_Aligned.out.SortedPos.bam 
+# 145168134
+
+########################################################################################################################
+########################################################################################################################
+
+
+### *** RESULTS *** ###
+
+### calidad alineamiento 
+
+	1) (fastqc)
+
+	Measure					Value
+-----------------------------------------------------------------------
+Filename				wt1_Aligned.out.SortedPos.bam
+File type				Conventional base calls
+Encoding				Sanger / Illumina 1.9
+Total Sequences				106378722
+Sequences flagged as poor quality	0
+Sequence length				75
+%GC					47
+
+	2) samtools flagstat wt1_Aligned.out.SortedPos.bam > wt1_sortedPos.stats.txt
+
+106378722 + 0 in total (QC-passed reads + QC-failed reads)
+7676968 + 0 secondary
+0 + 0 supplementary
+0 + 0 duplicates
+106378722 + 0 mapped (100.00% : N/A)
+98701754 + 0 paired in sequencing
+49350877 + 0 read1
+49350877 + 0 read2
+98701754 + 0 properly paired (100.00% : N/A)
+98701754 + 0 with itself and mate mapped
+0 + 0 singletons (0.00% : N/A)
+0 + 0 with mate mapped to a different chr
+0 + 0 with mate mapped to a different chr (mapQ>=5)
+
+
+### igv : stranded specific (reverse)
+
+	paired-end		
+		first pair: sentido contrario al gen
+		second pair: mismo sentido del gen  
+
+#######################################################################################################################
+
